@@ -4,7 +4,7 @@ DEMO for OHBM
 Heterogeneous Graph Convolutional Neural Network via Hodge-Laplacian
 
 <picture>
- <img alt="Model Architecture" src="Architecture_v2.png">
+ <img alt="Model Architecture" src="fig/NM_Architecture.png">
 </picture>
 
 This project introduces a novel approach to transform a traditional graph into a simplex graph, where nodes, edges, and higher-order interactions are characterized by different-dimensional simplices. We propose the Hodge-Laplacian Heterogeneous Graph Attention Network (HL-HGAT), which enables simultaneous learning of features on different-dimensional simplices.
