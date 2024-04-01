@@ -397,7 +397,137 @@ class HL_HGAT_attpool(torch.nn.Module):
             x = fc(x)
 
         return self.out(x), x, node_att, edge_att
-    
+
+###############################################################################
+class HL_HGAT_CIFAR10SP(torch.nn.Module):
+    def __init__(self, channels=[2,2,2], filters=[64,128,256], mlp_channels=[], K=2, node_dim=5, 
+                  edge_dim=4, num_classes=10, dropout_ratio=0.0, dropout_ratio_mlp=0.0, pool_loc=0,
+                  keig=10):
+        """
+        For visualization
+        """
+        super(HL_HGAT_CIFAR10SP, self).__init__()
+        self.channels = channels
+        self.filters = filters#[]
+        self.mlp_channels = mlp_channels
+        self.node_dim = node_dim + keig
+        self.edge_dim = edge_dim + keig
+        self.initial_channel = self.filters[0]
+        self.pool_loc = pool_loc
+        # self.leaky_relu = nn.LeakyReLU(negative_slope=leaky_slope)
+        self.relu = nn.ReLU()
+        
+        layers = [(HodgeLaguerreConv(self.node_dim, self.initial_channel, K=1),
+                    'x_t, edge_index_t, edge_weight_t -> x_t'),
+                  (gnn.BatchNorm(self.initial_channel), 'x_t -> x_t'),
+                  (nn.ReLU(), 'x_t -> x_t'),
+                  (Dropout(p=dropout_ratio), 'x_t -> x_t'),
+                  (HodgeLaguerreConv(self.edge_dim, self.initial_channel, K=1),
+                    'x_s, edge_index_s, edge_weight_s -> x_s'),
+                  (gnn.BatchNorm(self.initial_channel), 'x_s -> x_s'),
+                  (nn.ReLU(), 'x_s -> x_s'),
+                  (Dropout(p=dropout_ratio), 'x_s -> x_s'),
+                  (lambda x1, x2: [x1,x2],'x_t, x_s -> x'),]
+        fc = gnn.Sequential('x_t, edge_index_t, edge_weight_t, x_s, edge_index_s, edge_weight_s', layers)
+        setattr(self, 'HL_init_conv', fc)
+        gcn_insize = self.initial_channel
+            
+        for i, gcn_outsize in enumerate(self.filters):
+            for j in range(self.channels[i]):
+                # int term
+                fc = NodeEdgeInt(d=gcn_insize, dv = gcn_outsize)
+                setattr(self, 'NEInt{}{}'.format(i,j), fc)
+                # HL node edge filtering
+                layers = [(HodgeLaguerreConv(gcn_outsize, gcn_outsize, K=K),
+                            'x_t, edge_index_t, edge_weight_t -> x_t'),
+                          (gnn.BatchNorm(gcn_outsize), 'x_t -> x_t'),
+                          (nn.ReLU(), 'x_t -> x_t'),
+                          (Dropout(p=dropout_ratio), 'x_t -> x_t'),
+                          (HodgeLaguerreConv(gcn_outsize, gcn_outsize, K=K),
+                            'x_s, edge_index_s, edge_weight_s -> x_s'),
+                          (gnn.BatchNorm(gcn_outsize), 'x_s -> x_s'),
+                          (nn.ReLU(), 'x_s -> x_s'),
+                          (Dropout(p=dropout_ratio), 'x_s -> x_s'),
+                          (lambda x1, x2: [x1,x2],'x_t, x_s -> x'),]
+                fc = gnn.Sequential('x_t, edge_index_t, edge_weight_t, x_s, edge_index_s, edge_weight_s', layers)
+                setattr(self, 'NEConv{}{}'.format(i,j), fc)
+                gcn_insize = gcn_insize + gcn_outsize
+            
+            if i == self.pool_loc:# < len(self.filters)-1:
+                # ATT
+                fc = NodeEdgeInt(d=gcn_insize, dv = gcn_outsize, only_att=True)
+                setattr(self, 'NEAtt{}'.format(i), fc)
+        
+        mlp_insize = self.filters[-1] * 2 #sum(Node_channels)+ sum(Edge_channels)#[-1]
+        for i, mlp_outsize in enumerate(mlp_channels):
+            fc = nn.Sequential(
+                Linear(mlp_insize, mlp_outsize),
+                nn.BatchNorm1d(mlp_outsize),
+                nn.ReLU(),
+                nn.Dropout(dropout_ratio_mlp),
+                )
+            setattr(self, 'mlp%d' % i, fc)
+            mlp_insize = mlp_outsize
+
+        self.out = Linear(mlp_insize, num_classes)
+
+
+    def forward(self, datas, device='cuda:0'):
+        # time3 = time.time() 
+        data = datas[0].to(device)
+        # 1. Obtain node embeddings
+        pos_ts, pos_ss = [], []
+        for p in range(0,1):#len(self.channels)-1):
+            n_batch = torch.cat( [torch.tensor([i]*nn) for i,nn in enumerate(datas[p].num_node1)], dim=-1)
+            n_batch = n_batch.to(device)
+            s_batch = torch.cat( [torch.tensor([i]*nn) for i,nn in enumerate(datas[p].num_edge1)], dim=-1)
+            s_batch = s_batch.to(device)
+            n_ahead = torch.cumsum(torch.cat([torch.zeros(1),datas[p+1].num_node1],dim=-1).to(device), dim=0, dtype=torch.long)[:-1]
+            s_ahead = torch.cumsum(torch.cat([torch.zeros(1),datas[p+1].num_edge1],dim=-1).to(device), dim=0, dtype=torch.long)[:-1]
+            pos_ts.append((datas[p].x_t[:,0].to(device) + n_ahead[n_batch]).view(-1,1))
+            pos_ss.append((datas[p].x_s[:,0].to(device) + s_ahead[s_batch]).view(-1,1))
+            
+        x_s, edge_index_s, edge_weight_s = data.x_s[:,1:], data.edge_index_s, data.edge_weight_s
+        x_t, edge_index_t, edge_weight_t = data.x_t[:,1:], data.edge_index_t, data.edge_weight_t
+        
+        x_t, x_s = self.HL_init_conv(x_t, edge_index_t, edge_weight_t, x_s, edge_index_s, edge_weight_s)
+        x_s0, x_t0 = x_s, x_t
+        k = 0
+        par_1 = adj2par1(datas[k].edge_index.to(device), x_t0.shape[0], x_s0.shape[0])
+        D = degree(datas[k].edge_index.view(-1).to(device),num_nodes=x_t0.shape[0]) + 1e-6
+        # time2 = time.time() 
+        for i, _ in enumerate(self.channels):
+            par_1 = adj2par1(datas[k].edge_index.to(device), x_t0.shape[0], x_s0.shape[0])
+            D = degree(datas[k].edge_index.view(-1).to(device))
+            
+            if i > self.pool_loc:
+                for j in range(self.channels[i]):
+                    fc = getattr(self, 'NEInt{}{}'.format(i,j))
+                    x_t, x_s = fc(x_t0, x_s0, par_1, D)
+                    fc = getattr(self, 'NEConv{}{}'.format(i,j))
+                    x_t, x_s = fc(x_t, edge_index_t, edge_weight_t, x_s, edge_index_s, edge_weight_s)
+                    x_t0 = torch.cat([x_t0, x_t], dim=-1)
+                    x_s0 = torch.cat([x_s0, x_s], dim=-1)
+                    fc = getattr(self, 'NEInt{}{}'.format(i,j))
+                    x_t1, x_s1 = fc(x_t01, x_s01, par_1, D)
+                    fc = getattr(self, 'NEConv{}{}'.format(i,j))
+                    x_t1, x_s1 = fc(x_t1, edge_index_t, edge_weight_t, x_s1, edge_index_s, edge_weight_s)
+                    x_t01 = torch.cat([x_t01, x_t1], dim=-1)
+                    x_s01 = torch.cat([x_s01, x_s1], dim=-1)
+            else:
+                for j in range(self.channels[i]):
+                    fc = getattr(self, 'NEInt{}{}'.format(i,j))
+                    x_t, x_s = fc(x_t0, x_s0, par_1, D)
+                    fc = getattr(self, 'NEConv{}{}'.format(i,j))
+                    x_t, x_s = fc(x_t, edge_index_t, edge_weight_t, x_s, edge_index_s, edge_weight_s)
+                    x_t0 = torch.cat([x_t0, x_t], dim=-1)
+                    x_s0 = torch.cat([x_s0, x_s], dim=-1)
+                    
+            # structural pooling        
+            if i == self.pool_loc:
+                fc = getattr(self, 'NEAtt%d' % i)
+                att_t, att_s = fc(x_t0, x_s0, par_1, D)
+                return att_t, att_s
 ###############################################################################
 def unbatch_edge_attr(edge_index: Tensor, edge_attr: Tensor, batch: Tensor):
     deg = ut.degree(batch, dtype=torch.int64)
