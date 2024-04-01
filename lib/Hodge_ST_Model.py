@@ -15,8 +15,6 @@ from lib.Hodge_Dataset import *
 # import torchvision as tv
 from scipy.sparse.linalg import eigsh
 from torch_geometric.utils import unbatch
-from torchmetrics import F1Score
-from torchmetrics.classification import BinaryF1Score
 from torch_scatter import scatter_max, scatter_mean, scatter_add
 
 
