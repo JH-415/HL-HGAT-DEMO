@@ -135,11 +135,11 @@ class Brain_MLGC_ALL(Dataset):
             fmri = torch.tensor(self.Brain_ALL[idx][0]).to(torch.float)
         fmri = (fmri - fmri.mean()) / fmri.std()
         fc = torch.corrcoef(fmri)[self.skeleton.indices()[0],self.skeleton.indices()[1]]
-        # sc = torch.tensor(self.Brain_ALL[idx][1]).to(torch.float)
-        # sc = sc[self.skeleton.indices()[0],self.skeleton.indices()[1]]
+        sc = torch.tensor(self.Brain_ALL[idx][1]).to(torch.float)
+        sc = torch.log(sc[self.skeleton.indices()[0],self.skeleton.indices()[1]]+1)
         y = (torch.tensor(self.Brain_ALL[idx][2][:5].mean()).to(torch.float)-95.1377) / self.Y_std
         datas = copy.deepcopy(self.datas)
-        datas[0].x_s = fc.view(-1,1)
+        datas[0].x_s = sc.view(-1,1)
         datas[0].x_t = fmri
         datas[0].y = y
         return datas
