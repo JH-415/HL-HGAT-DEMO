@@ -28,7 +28,8 @@ import matplotlib.pyplot as plt
 
 class PairData(Data):
     def __init__(self, edge_index_s=None, x_s=None, edge_index_t=None, x_t=None,
-                edge_weight_s=None, edge_weight_t=None, edge_index=None, y=None):
+                edge_weight_s=None, edge_weight_t=None, edge_index=None, y=None,
+                pos_s=None, pos_t=None):
         super().__init__()
         self.edge_index_s = edge_index_s
         self.x_s = x_s
@@ -37,6 +38,8 @@ class PairData(Data):
         self.edge_weight_s = edge_weight_s
         self.edge_weight_t = edge_weight_t
         self.edge_index = edge_index
+        self.pos_s = pos_s
+        self.pos_t = pos_t
         self.y = y
 
     def __inc__(self, key, value, *args, **kwargs):
