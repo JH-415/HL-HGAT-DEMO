@@ -192,60 +192,6 @@ class HL_filter(torch.nn.Module):
                 x_t0,x_s0 = x_t,x_s
 
         return x_t0, x_s0
-    
-# class HL_filter(torch.nn.Module):
-#     def __init__(self, channels=2, filters=32, K=4, node_dim=64, 
-#                 edge_dim=64, dropout_ratio=0.0, leaky_slope=0.1, if_dense=True):
-#         '''
-#         HL-filtering layer
-#         channels: number of HL-filtering layer
-#         filters: number of filters in each layer
-#         K: polynomial order
-#         node_dim: input node dimension
-#         edge_dim: input edge dimension
-#         '''
-#         self.channels = channels
-#         self.filters = filters
-#         self.node_dim = node_dim
-#         self.edge_dim = edge_dim
-#         gcn_outsize = self.filters
-#         t_insize = self.node_dim
-#         s_insize = self.edge_dim
-#         self.if_dense = if_dense
-#         super().__init__()
-
-#         for j in range(self.channels):
-#             layers = [(HodgeLaguerreConv(t_insize, gcn_outsize, K=K),
-#                         'x_t, edge_index_t, edge_weight_t -> x_t'),
-#                         (gnn.BatchNorm(gcn_outsize), 'x_t -> x_t'),
-#                         (nn.LeakyReLU(negative_slope=leaky_slope), 'x_t -> x_t'),
-#                         (Dropout(p=dropout_ratio), 'x_t -> x_t'),
-#                         (HodgeLaguerreConv(s_insize, gcn_outsize, K=K),
-#                         'x_s, edge_index_s, edge_weight_s -> x_s'),
-#                         (gnn.BatchNorm(gcn_outsize), 'x_s -> x_s'),
-#                         (nn.LeakyReLU(negative_slope=leaky_slope), 'x_s -> x_s'),
-#                         (Dropout(p=dropout_ratio), 'x_s -> x_s'),
-#                         (lambda x1, x2: [x1,x2],'x_t, x_s -> x'),]
-#             fc = gnn.Sequential('x_t, edge_index_t, edge_weight_t, x_s, edge_index_s, edge_weight_s', layers)
-#             setattr(self, 'NEConv{}'.format(j), fc)
-#             if self.if_dense:
-#                 t_insize = t_insize + gcn_outsize
-#                 s_insize = s_insize + gcn_outsize
-#             else:
-#                 t_insize = gcn_outsize
-#                 s_insize = gcn_outsize
-
-#     def forward(self, x_t0, edge_index_t, edge_weight_t, x_s0, edge_index_s, edge_weight_s):
-#         for j in range(self.channels):
-#             fc = getattr(self, 'NEConv{}'.format(j))
-#             x_t, x_s = fc(x_t0, edge_index_t, edge_weight_t, x_s0, edge_index_s, edge_weight_s)
-#             if self.if_dense:
-#                 x_t0 = torch.cat([x_t0, x_t], dim=-1)
-#                 x_s0 = torch.cat([x_s0, x_s], dim=-1)
-#             else:
-#                 x_t0,x_s0 = x_t,x_s
-
-#         return x_t0, x_s0
 
 class HL_HGAT_attpool(torch.nn.Module):
     def __init__(self, channels=[2,2,2], filters=[32,64,128], mlp_channels=[], K=4, node_dim=64, 
@@ -602,27 +548,26 @@ class NodeEdgeInt(nn.Module):
 ###############################################################################
 
 class Inception1D(nn.Module):
-    def __init__(self, in_channels=64, num_channels=8, maxpool=3, if_dim_reduction=False, 
-                 leaky_slope=0.1, if_readout=False):
+    def __init__(self, in_channels=64, maxpool=3, if_dim_reduction=False, 
+                  leaky_slope=0.1, if_readout=False):
         # inception module for fmri time course data
         super(Inception1D, self).__init__()
         self.in_channels = in_channels
-        self.num_channels = num_channels
         self.if_dim_reduction = if_dim_reduction
         self.if_readout = if_readout
         self.embedding = nn.Conv1d(1, in_channels, 5, padding=2)
 
-        self.channel1_1 = nn.Conv1d(in_channels, int(in_channels/4), 1, padding=0)
-        self.channel2_1 = nn.Conv1d(in_channels, int(in_channels/2), 3, padding=1)
-        self.channel3_1 = nn.Conv1d(in_channels, int(in_channels/4), 5, padding=2)
+        self.channel1_1 = nn.Conv1d(in_channels, int(in_channels/4), 3, padding=1)
+        self.channel2_1 = nn.Conv1d(in_channels, int(in_channels/2), 5, padding=2)
+        self.channel3_1 = nn.Conv1d(in_channels, int(in_channels/4), 7, padding=3)
         self.pool_1 = nn.MaxPool1d(maxpool, stride=int(maxpool-1), padding=int((maxpool-1)/2))
         
-        self.channel1_2 = nn.Conv1d(in_channels, num_channels, 1, padding=0)
-        self.channel2_2 = nn.Conv1d(in_channels, num_channels*2, 3, padding=1)
-        self.channel3_2 = nn.Conv1d(in_channels, num_channels, 5, padding=2)
+        self.channel1_2 = nn.Conv1d(in_channels, int(in_channels/4), 3, padding=1)
+        self.channel2_2 = nn.Conv1d(in_channels, int(in_channels/2), 5, padding=2)
+        self.channel3_2 = nn.Conv1d(in_channels, int(in_channels/4), 7, padding=3)
         self.leakyReLU = nn.LeakyReLU(leaky_slope)
         self.bn1 = nn.BatchNorm1d(self.in_channels)
-        self.bn2 = nn.BatchNorm1d(self.num_channels*4)
+        self.bn2 = nn.BatchNorm1d(self.in_channels)
     
     def forward(self, x):
         # Temporal Feature x: N*T
@@ -632,18 +577,17 @@ class Inception1D(nn.Module):
         x1 = self.channel1_1(x)
         x2 = self.channel2_1(x)
         x3 = self.channel3_1(x)
-        x = self.pool_1(self.leakyReLU(self.bn1(torch.cat((x1,x2,x3), dim=1))))
+        x = self.pool_1(self.leakyReLU(self.bn1(torch.cat((x1,x2,x3), dim=1)))+x)
         x1 = self.channel1_2(x)
         x2 = self.channel2_2(x)
         x3 = self.channel3_2(x)
-        x = self.leakyReLU(self.bn2(torch.cat((x1,x2,x3), dim=1)))
+        x = self.leakyReLU(self.bn2(torch.cat((x1,x2,x3), dim=1)))+x
         
         if self.if_readout:
-            temp = x.max(dim=-1)
-            return torch.cat([temp[0], x.mean(dim=-1)],dim=-1)
+            temp = x.std(dim=-1)
+            return torch.cat([temp, x.mean(dim=-1)],dim=-1)
         else:
             return torch.transpose(x,1,2)
-    
     
 ###############################################################################
 class HodgeLaguerreFastConv(MessagePassing):
