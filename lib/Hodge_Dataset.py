@@ -140,7 +140,7 @@ class Brain_MLGC_ALL(Dataset):
         fc = torch.corrcoef(fmri)[self.skeleton.indices()[0],self.skeleton.indices()[1]]
         sc = torch.tensor(self.Brain_ALL[idx][1]).to(torch.float)
         sc = torch.log(sc[self.skeleton.indices()[0],self.skeleton.indices()[1]]+1)
-        y = torch.tensor(self.Brain_ALL[idx][2][8]).to(torch.float)
+        y = torch.tensor(self.Brain_ALL[idx][2][0][8]).to(torch.float)
         datas = copy.deepcopy(self.datas)
         datas[0].x_s = sc.view(-1,1)
         datas[0].x_t = fmri
