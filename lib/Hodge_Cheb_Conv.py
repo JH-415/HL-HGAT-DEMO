@@ -118,8 +118,39 @@ class MSI(nn.Module):
             x_s1 = self.WV_Edge(torch.cat([x_t2s, x_s], dim=-1))
             return x_t1, x_s1
 
+class NE_Conv(torch.nn.Module):
+    def __init__(self, gcn_outsize=32, K=4, t_insize=64, s_insize=64,
+                dropout_ratio=0.0, leaky_slope=0.1):
+        '''
+        Node-edge convolution
+        gcn_outsize: number of filters in each layer
+        K: polynomial order
+        t_insize: input node dimension
+        s_insize: input edge dimension
+        '''
+        super().__init__()
+        # gcn_outsize = self.gcn_outsize
+        # t_insize = self.t_insize
+        # s_insize = self.s_insize
+
+        self.t_conv = HodgeLaguerreFastConv(t_insize, gcn_outsize, K=K)
+        self.t_bn = gnn.BatchNorm(gcn_outsize)
+        self.t_act = nn.LeakyReLU(negative_slope=leaky_slope)
+        self.t_drop = Dropout(p=dropout_ratio)
+        self.s_conv = HodgeLaguerreFastConv(s_insize, gcn_outsize, K=K)
+        self.s_bn = gnn.BatchNorm(gcn_outsize)
+        self.s_act = nn.LeakyReLU(negative_slope=leaky_slope)
+        self.s_drop = Dropout(p=dropout_ratio)
+
+    def forward(self, x_t0, adj_t, x_s0, adj_s):
+        x_t = self.t_conv(x_t0, adj_t)
+        x_t = self.t_drop(self.t_act(self.t_bn(x_t)))
+        x_s = self.s_conv(x_s0, adj_s)
+        x_s = self.s_drop(self.s_act(self.s_bn(x_s)))
+        return x_t, x_s
+
 class HL_filter(torch.nn.Module):
-    def __init__(self, channels=2, filters=32, K=4, node_dim=64, 
+    def __init__(self, channels=2, filters=32, K=4, node_dim=64,
                 edge_dim=64, dropout_ratio=0.0, leaky_slope=0.1, if_dense=True):
         '''
         HL-filtering layer
@@ -129,6 +160,7 @@ class HL_filter(torch.nn.Module):
         node_dim: input node dimension
         edge_dim: input edge dimension
         '''
+        super().__init__()
         self.channels = channels
         self.filters = filters
         self.node_dim = node_dim
@@ -137,40 +169,19 @@ class HL_filter(torch.nn.Module):
         t_insize = self.node_dim
         s_insize = self.edge_dim
         self.if_dense = if_dense
-        super().__init__()
 
         for j in range(self.channels):
             if self.if_dense:
                 fc = MSI(d=t_insize, dv=gcn_outsize)
                 setattr(self, 'MSI{}'.format(j), fc)
-                layers = [(HodgeLaguerreFastConv(gcn_outsize, gcn_outsize, K=K),
-                            'x_t, adj_t -> x_t'),
-                            (gnn.BatchNorm(gcn_outsize), 'x_t -> x_t'),
-                            (nn.LeakyReLU(negative_slope=leaky_slope), 'x_t -> x_t'),
-                            (Dropout(p=dropout_ratio), 'x_t -> x_t'),
-                            (HodgeLaguerreFastConv(gcn_outsize, gcn_outsize, K=K),
-                            'x_s, adj_s -> x_s'),
-                            (gnn.BatchNorm(gcn_outsize), 'x_s -> x_s'),
-                            (nn.LeakyReLU(negative_slope=leaky_slope), 'x_s -> x_s'),
-                            (Dropout(p=dropout_ratio), 'x_s -> x_s'),
-                            (lambda x1, x2: [x1,x2],'x_t, x_s -> x'),]
-                fc = gnn.Sequential('x_t, adj_t, x_s, adj_s', layers)
+                fc = NE_Conv(gcn_outsize=gcn_outsize, K=K, t_insize=gcn_outsize,
+                             s_insize=gcn_outsize, dropout_ratio=0.0, leaky_slope=0.1)
                 setattr(self, 'NEConv{}'.format(j), fc)
                 t_insize = t_insize + gcn_outsize
                 s_insize = s_insize + gcn_outsize
             else:
-                layers = [(HodgeLaguerreFastConv(t_insize, gcn_outsize, K=K),
-                            'x_t, adj_t -> x_t'),
-                            (gnn.BatchNorm(gcn_outsize), 'x_t -> x_t'),
-                            (nn.LeakyReLU(negative_slope=leaky_slope), 'x_t -> x_t'),
-                            (Dropout(p=dropout_ratio), 'x_t -> x_t'),
-                            (HodgeLaguerreFastConv(s_insize, gcn_outsize, K=K),
-                            'x_s, adj_s -> x_s'),
-                            (gnn.BatchNorm(gcn_outsize), 'x_s -> x_s'),
-                            (nn.LeakyReLU(negative_slope=leaky_slope), 'x_s -> x_s'),
-                            (Dropout(p=dropout_ratio), 'x_s -> x_s'),
-                            (lambda x1, x2: [x1,x2],'x_t, x_s -> x'),]
-                fc = gnn.Sequential('x_t, adj_t, x_s, adj_s', layers)
+                fc = NE_Conv(gcn_outsize=gcn_outsize, K=K, t_insize=t_insize,
+                             s_insize=s_insize, dropout_ratio=0.0, leaky_slope=0.1)
                 setattr(self, 'NEConv{}'.format(j), fc)
                 t_insize = gcn_outsize
                 s_insize = gcn_outsize
