@@ -140,18 +140,20 @@ def plt_sort_anatomy(m, clim=None):
     
     
 class Brain_MLGC_ALL(Dataset):
-    def __init__(self, root, Brain_ALL, skeleton, datas, pool_num=2, ifaug=0, Y_std=7.3):
+    def __init__(self, root, Brain_ALL, skeleton, datas, pool_num=2, ifaug=0,
+                 mode=1, y_idx=8):
         # data aug
         self.root = root
         self.pool_num = pool_num
         self.skeleton = skeleton
         self.ifaug = ifaug
-        self.Y_std = Y_std
+        self.mode = mode
         self.Brain_ALL = Brain_ALL
+        self.y_idx = y_idx
         self.size = len(Brain_ALL)
         self.datas = datas
         super().__init__(root)
-  
+
     @property
     def processed_file_names(self):
         return ['Brain_MLGC_'+str(fileidx)+'.pt' for fileidx in range(self.len())]
@@ -166,12 +168,15 @@ class Brain_MLGC_ALL(Dataset):
         else:
             fmri = torch.tensor(self.Brain_ALL[idx][0]).to(torch.float)
         fmri = (fmri - fmri.mean()) / fmri.std()
-        fc = torch.corrcoef(fmri)[self.skeleton.indices()[0],self.skeleton.indices()[1]]
-        sc = torch.tensor(self.Brain_ALL[idx][1]).to(torch.float)
-        sc = torch.log(sc[self.skeleton.indices()[0],self.skeleton.indices()[1]]+1)
-        y = torch.tensor(self.Brain_ALL[idx][2][0][8]).to(torch.float)
+        if self.mode == 0:
+            fc = torch.corrcoef(fmri)[self.skeleton[0],self.skeleton[1]]
+        else:
+            fc = torch.tensor(self.Brain_ALL[idx][1]).to(torch.float)
+            fc = fc[self.skeleton[0],self.skeleton[1]]
+        y = torch.tensor(self.Brain_ALL[idx][2]).to(torch.float)
+        y = y.view(-1)[self.y_idx]
         datas = copy.deepcopy(self.datas)
-        datas[0].x_s = sc.view(-1,1)
+        datas[0].x_s = fc.view(-1,1)
         datas[0].x_t = fmri
         datas[0].y = y
         return datas
