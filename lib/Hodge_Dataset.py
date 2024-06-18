@@ -52,6 +52,35 @@ class PairData(Data):
         else:
             return super().__inc__(key, value, *args, **kwargs)
 
+def graph2hgraph(data):
+    '''
+    transform a graph to a heterogeneous graph
+    '''
+    edge_index,edge_attr = to_undirected(graph.edge_index, graph.edge_attr, reduce='min')
+    idx = edge_index[0]<edge_index[1]
+    edge_index,edge_attr = edge_index[:,idx], edge_attr[idx]
+
+    par1 = adj2par1(edge_index, graph.x.shape[0], edge_index.shape[1]).to_dense()
+    L0 = torch.matmul(par1, par1.T)
+    lambda0, _ = torch.linalg.eigh(L0)
+    maxeig = lambda0.max()
+    L0 = 2*torch.matmul(par1, par1.T)/maxeig
+    L1 = 2*torch.matmul(par1.T, par1)/maxeig
+    x_s = edge_attr.view(-1,1)
+    x_t = graph.x
+    data = PairData(x_s=x_s, edge_index_s=None, edge_weight_s=None,
+                      x_t=x_t, edge_index_t=None, edge_weight_t=None,
+                      y = data.y)
+    edge_index_t, edge_weight_t = dense_to_sparse(L0)
+    edge_index_s, edge_weight_s = dense_to_sparse(L1)
+    data.edge_index_t, data.edge_weight_t = edge_index_t, edge_weight_t
+    data.edge_index_s, data.edge_weight_s = edge_index_s, edge_weight_s
+    data.num_node1 = data.x_t.shape[0]
+    data.num_edge1 = data.x_s.shape[0]
+    data.num_nodes = data.x_t.shape[0]
+    data.edge_index=edge_index
+    return data
+
 
 def plt_sort_anatomy(m, clim=None):
     # Load the .mat file
