@@ -150,22 +150,22 @@ class NE_Conv(torch.nn.Module):
         return x_t, x_s
 
 class HL_filter(torch.nn.Module):
-    def __init__(self, channels=2, filters=32, K=4, node_dim=64,
+    def __init__(self, layers=2, channels=32, K=4, node_dim=64,
                 edge_dim=64, dropout_ratio=0.0, leaky_slope=0.1, if_dense=True):
         '''
         HL-filtering layer
-        channels: number of HL-filtering layer
-        filters: number of filters in each layer
+        layers: number of HL-filtering layer
+        channels: number of filters in each layer
         K: polynomial order
         node_dim: input node dimension
         edge_dim: input edge dimension
         '''
         super().__init__()
-        self.channels = channels
-        self.filters = filters
+        self.channels = layers
+        self.filters = channels
         self.node_dim = node_dim
         self.edge_dim = edge_dim
-        gcn_outsize = self.filters
+        gcn_outsize = self.channels
         t_insize = self.node_dim
         s_insize = self.edge_dim
         self.if_dense = if_dense
