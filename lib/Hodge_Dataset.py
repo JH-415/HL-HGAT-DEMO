@@ -186,7 +186,7 @@ def FC2mask(FC, threshmode=1, k_ratio=0.25):
     return mask.triu(1)
 
 
-def MLGC_Weight(data, keig=1):
+def MLGC_Weight(data, keig=1, seed=10086):
     '''
     multi-level graph coarsening (MLGC)
     input: 
@@ -197,6 +197,15 @@ def MLGC_Weight(data, keig=1):
        c_node: node assignment matrix
        c_edge: edge assignment matrix
     '''
+    ### Save the current random state
+    current_random_state = torch.get_rng_state()
+    current_cuda_random_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+    
+    ### Set the random seed
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        
     wei = data.x_s.view(-1)
     c_node = graclus_cluster(data.edge_index[0], data.edge_index[1],
                     wei, data.num_node1)
@@ -273,6 +282,11 @@ def MLGC_Weight(data, keig=1):
     graph.num_node1 = c_unique.shape[0]
     graph.num_edge1 = ei1.shape[1]
     graph.num_nodes = c_unique.shape[0]
+
+    # Restore the saved random state
+    torch.set_rng_state(current_random_state)
+    if torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(current_cuda_random_state)
     return graph, c_node.view(-1,1), c_edge.view(-1,1)
 
 
