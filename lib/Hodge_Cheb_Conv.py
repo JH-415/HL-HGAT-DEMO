@@ -165,7 +165,7 @@ class HL_filter(torch.nn.Module):
         self.filters = channels
         self.node_dim = node_dim
         self.edge_dim = edge_dim
-        gcn_outsize = self.channels
+        gcn_outsize = self.filters
         t_insize = self.node_dim
         s_insize = self.edge_dim
         self.if_dense = if_dense
